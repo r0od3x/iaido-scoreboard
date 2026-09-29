@@ -1,0 +1,12 @@
+# PyInstaller output — publish the .exe as a GitHub Release instead
+build/
+dist/
+*.exe
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local configuration
+config.json

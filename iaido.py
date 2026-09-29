@@ -1,6 +1,37 @@
+import json
+import os
+import sys
 import tkinter as tk
-import math
 from collections import Counter
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+# Defaults can be overridden by a "config.json" placed next to the script / .exe.
+DEFAULT_CONFIG = {
+    "team_size": 3,
+    "font_family": "Arial",
+    "round_overlay_ms": 3000,
+    "credit_text": "Made by Ghalbi Mohamed Reda",
+    "red_label": "Red",
+    "white_label": "White",
+}
+
+
+def load_config():
+    base_dir = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
+    config = dict(DEFAULT_CONFIG)
+    path = os.path.join(base_dir, "config.json")
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                config.update(json.load(f))
+        except (OSError, ValueError) as e:
+            print(f"Ignoring invalid config.json: {e}")
+    return config
+
+
+CONFIG = load_config()
+TEAM_SIZE = int(CONFIG["team_size"])
+FONT = CONFIG["font_family"]
 
 red_time = 0
 white_time = 0
@@ -18,6 +49,7 @@ red_team_names = []
 white_team_names = []
 match_history = []
 pending_score = ""
+timers_started = False
 
 def update_red_timer():
     global red_time
@@ -50,7 +82,7 @@ def update_white_timer():
     root.after(1000, update_white_timer)
 
 def start_match():
-    global controls_enabled, red_team_names, white_team_names, match_index
+    global controls_enabled, red_team_names, white_team_names, match_index, timers_started
     controls_enabled = True
     match_index = 0
 
@@ -60,22 +92,26 @@ def start_match():
         match_history.clear()
         set_match_names()
     else:
-        top_label.config(text=red_name_entry.get().strip() or "Red")
-        bottom_label.config(text=white_name_entry.get().strip() or "White")
+        top_label.config(text=red_name_entry.get().strip() or CONFIG["red_label"])
+        bottom_label.config(text=white_name_entry.get().strip() or CONFIG["white_label"])
 
     form_frame.pack_forget()
     split_screen_frame.pack(fill="both", expand=True)
     root.focus_set()
 
-    update_red_timer()
-    update_white_timer()
+    # The timer loops reschedule themselves forever: start them only once,
+    # otherwise every new match would make the clocks tick faster.
+    if not timers_started:
+        timers_started = True
+        update_red_timer()
+        update_white_timer()
 
 def set_match_names():
     global match_index
     if team_mode:
-        if match_index < 3:
-            top_label.config(text=red_team_names[match_index])
-            bottom_label.config(text=white_team_names[match_index])
+        if match_index < TEAM_SIZE:
+            top_label.config(text=red_team_names[match_index] or f"{CONFIG['red_label']} {match_index + 1}")
+            bottom_label.config(text=white_team_names[match_index] or f"{CONFIG['white_label']} {match_index + 1}")
         else:
             check_series_winner()
     else:
@@ -85,6 +121,10 @@ def set_match_names():
 def on_key_press(event):
     global red_running, white_running, match_index, red_wins, white_wins
     global red_time, white_time, current_score, pending_score, controls_enabled
+    # Let text fields receive every key (otherwise typing "q" in a name quits the app)
+    if isinstance(event.widget, tk.Entry):
+        return
+
     # Quit with q anywhere, even on homepage
     if event.char.lower() == 'q':
         root.quit()
@@ -162,11 +202,11 @@ def animate_overlay(overlay, label, score_lbl=None, step=0, max_steps=60):
     scale = 0.8 + 0.2 * eased_t
     try:
         overlay.attributes("-alpha", alpha)
-    except:
+    except tk.TclError:
         pass
-    label.config(font=("Arial", int(64 * scale), "bold"))
+    label.config(font=(FONT, int(64 * scale), "bold"))
     if score_lbl:
-        score_lbl.config(font=("Arial", int(48 * scale), "bold"))
+        score_lbl.config(font=(FONT, int(48 * scale), "bold"))
     if step < max_steps:
         overlay.after(25, animate_overlay, overlay, label, score_lbl, step + 1, max_steps)
 
@@ -176,7 +216,7 @@ def animate_overlay_out(overlay, callback=None, step=60, max_steps=60):
     alpha = eased_t
     try:
         overlay.attributes("-alpha", alpha)
-    except:
+    except tk.TclError:
         pass
     if step > 0:
         overlay.after(25, animate_overlay_out, overlay, callback, step - 1, max_steps)
@@ -199,7 +239,7 @@ def show_round_winner(color):
     label = tk.Label(
         overlay,
         text=message,
-        font=("Arial", 1, "bold"),  # start small for animation
+        font=(FONT, 1, "bold"),  # start small for animation
         fg=fg,
         bg=bg_color
     )
@@ -210,7 +250,7 @@ def show_round_winner(color):
         score_lbl = tk.Label(
             overlay,
             text=current_score,
-            font=("Arial", 1, "bold"),
+            font=(FONT, 1, "bold"),
             fg=fg,
             bg=bg_color
         )
@@ -228,7 +268,7 @@ def show_round_winner(color):
         else:
             animate_overlay_out(overlay, callback=next_round)
 
-    overlay.after(3000, proceed)  # slower pause for better effect
+    overlay.after(CONFIG["round_overlay_ms"], proceed)
 
 
 def fade_to_final_winner(prev_overlay):
@@ -271,7 +311,7 @@ def show_winner(color):
     label = tk.Label(
         winner_overlay,
         text=message,
-        font=("Arial", 1, "bold"),
+        font=(FONT, 1, "bold"),
         fg=fg_color,
         bg=bg_color
     )
@@ -291,7 +331,7 @@ def show_draw():
     label = tk.Label(
         draw_overlay,
         text="DRAW!",
-        font=("Arial", 72, "bold"),
+        font=(FONT, 72, "bold"),
         fg="white",
         bg="gray"
     )
@@ -309,31 +349,31 @@ def show_name_input():
     for widget in form_frame.winfo_children():
         widget.destroy()
 
-    form_title = tk.Label(form_frame, text="Enter Player Names", font=("Arial", 36, "bold"), bg="#1e1e2f", fg="#f0f0f0")
+    form_title = tk.Label(form_frame, text="Enter Player Names", font=(FONT, 36, "bold"), bg="#1e1e2f", fg="#f0f0f0")
     form_title.pack(pady=40)
 
     if team_mode:
-        tk.Label(form_frame, text="Red Team (3 Players):", font=("Arial", 20), bg="#1e1e2f", fg="red").pack()
-        for _ in range(3):
-            e = tk.Entry(form_frame, font=("Arial", 18), bg="#2e2e3f", fg="white")
+        tk.Label(form_frame, text=f"Red Team ({TEAM_SIZE} Players):", font=(FONT, 20), bg="#1e1e2f", fg="red").pack()
+        for _ in range(TEAM_SIZE):
+            e = tk.Entry(form_frame, font=(FONT, 18), bg="#2e2e3f", fg="white")
             e.pack(pady=5)
             red_team_entries.append(e)
 
-        tk.Label(form_frame, text="White Team (3 Players):", font=("Arial", 20), bg="#1e1e2f", fg="gray").pack()
-        for _ in range(3):
-            e = tk.Entry(form_frame, font=("Arial", 18), bg="#2e2e3f", fg="white")
+        tk.Label(form_frame, text=f"White Team ({TEAM_SIZE} Players):", font=(FONT, 20), bg="#1e1e2f", fg="gray").pack()
+        for _ in range(TEAM_SIZE):
+            e = tk.Entry(form_frame, font=(FONT, 18), bg="#2e2e3f", fg="white")
             e.pack(pady=5)
             white_team_entries.append(e)
     else:
-        tk.Label(form_frame, text="Red Name:", font=("Arial", 20), bg="#1e1e2f", fg="red").pack()
-        red_name_entry = tk.Entry(form_frame, font=("Arial", 18), bg="#2e2e3f", fg="white")
+        tk.Label(form_frame, text="Red Name:", font=(FONT, 20), bg="#1e1e2f", fg="red").pack()
+        red_name_entry = tk.Entry(form_frame, font=(FONT, 18), bg="#2e2e3f", fg="white")
         red_name_entry.pack(pady=5)
 
-        tk.Label(form_frame, text="White Name:", font=("Arial", 20), bg="#1e1e2f", fg="gray").pack()
-        white_name_entry = tk.Entry(form_frame, font=("Arial", 18), bg="#2e2e3f", fg="white")
+        tk.Label(form_frame, text="White Name:", font=(FONT, 20), bg="#1e1e2f", fg="gray").pack()
+        white_name_entry = tk.Entry(form_frame, font=(FONT, 18), bg="#2e2e3f", fg="white")
         white_name_entry.pack(pady=5)
 
-    submit_btn = tk.Button(form_frame, text="Start Match", font=("Arial", 20), bg="#00adb5", fg="white", command=start_match)
+    submit_btn = tk.Button(form_frame, text="Start Match", font=(FONT, 20), bg="#00adb5", fg="white", command=start_match)
     submit_btn.pack(pady=40)
 
     form_frame.pack(fill="both", expand=True)
@@ -373,20 +413,20 @@ mode_frame.pack(fill="both", expand=True)
 # Small "Made by" label at the bottom of mode_frame
 made_by_label = tk.Label(
     mode_frame,
-    text="Made by Ghalbi Mohamed Reda",
-    font=("Arial", 8),
+    text=CONFIG["credit_text"],
+    font=(FONT, 8),
     fg="white",
     bg="#1e1e2f"
 )
 made_by_label.pack(side="bottom", pady=5)
 
-mode_label = tk.Label(mode_frame, text="Choose Mode", font=("Arial", 36, "bold"), bg="#1e1e2f", fg="white")
+mode_label = tk.Label(mode_frame, text="Choose Mode", font=(FONT, 36, "bold"), bg="#1e1e2f", fg="white")
 mode_label.pack(pady=60)
 
-solo_btn = tk.Button(mode_frame, text="Solo Match", font=("Arial", 18, "bold"), bg="#00adb5", fg="white", activebackground="#007d84", relief="flat", padx=20, pady=10, command=lambda: choose_mode(False))
+solo_btn = tk.Button(mode_frame, text="Solo Match", font=(FONT, 18, "bold"), bg="#00adb5", fg="white", activebackground="#007d84", relief="flat", padx=20, pady=10, command=lambda: choose_mode(False))
 solo_btn.pack(pady=20)
 
-team_btn = tk.Button(mode_frame, text="Team Match (3v3)", font=("Arial", 18, "bold"), bg="#00adb5", fg="white", activebackground="#007d84", relief="flat", padx=20, pady=10, command=lambda: choose_mode(True))
+team_btn = tk.Button(mode_frame, text=f"Team Match ({TEAM_SIZE}v{TEAM_SIZE})", font=(FONT, 18, "bold"), bg="#00adb5", fg="white", activebackground="#007d84", relief="flat", padx=20, pady=10, command=lambda: choose_mode(True))
 team_btn.pack(pady=20)
 
 form_frame = tk.Frame(root, bg="#1e1e2f")
@@ -398,16 +438,16 @@ bottom_frame = tk.Frame(split_screen_frame, bg="white", width=screen_width, heig
 top_frame.pack(side="top", fill="both", expand=True)
 bottom_frame.pack(side="bottom", fill="both", expand=True)
 
-top_label = tk.Label(top_frame, text="", bg="red", fg="white", font=("Arial", 40, "bold"), anchor="w")
+top_label = tk.Label(top_frame, text="", bg="red", fg="white", font=(FONT, 40, "bold"), anchor="w")
 top_label.place(relx=0.02, rely=0.4, anchor="w")
 
-bottom_label = tk.Label(bottom_frame, text="", bg="white", fg="black", font=("Arial", 40, "bold"), anchor="w")
+bottom_label = tk.Label(bottom_frame, text="", bg="white", fg="black", font=(FONT, 40, "bold"), anchor="w")
 bottom_label.place(relx=0.02, rely=0.4, anchor="w")
 
-red_timer_label = tk.Label(top_frame, text="00:00", bg="red", fg="white", font=("Arial", 60, "bold"))
+red_timer_label = tk.Label(top_frame, text="00:00", bg="red", fg="white", font=(FONT, 60, "bold"))
 red_timer_label.place(relx=0.98, rely=0.5, anchor="e")
 
-white_timer_label = tk.Label(bottom_frame, text="00:00", bg="white", fg="black", font=("Arial", 60, "bold"))
+white_timer_label = tk.Label(bottom_frame, text="00:00", bg="white", fg="black", font=(FONT, 60, "bold"))
 white_timer_label.place(relx=0.98, rely=0.5, anchor="e")
 
 root.mainloop()
